@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createChemical, getChemicals, readAccessToken, storeAccessToken, toApiChemical, updateChemical } from './chemicalApi';
 
 const iconPaths = {
   grid: <><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></>,
@@ -110,8 +111,23 @@ function App() {
   const [mobileNav, setMobileNav] = useState(false);
   const [assignmentTab, setAssignmentTab] = useState('Tất cả');
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [accessToken, setAccessToken] = useState(readAccessToken);
+  const [chemicalLoading, setChemicalLoading] = useState(false);
+  const [chemicalError, setChemicalError] = useState('');
+  const [editingChemical, setEditingChemical] = useState(null);
 
-  useEffect(() => { localStorage.setItem('clvr-chemicals', JSON.stringify(chemicals)); }, [chemicals]);
+  useEffect(() => {
+    if (!accessToken) return undefined;
+    let active = true;
+    setChemicalLoading(true);
+    setChemicalError('');
+    getChemicals(accessToken)
+      .then((items) => { if (active) setChemicals(items); })
+      .catch((error) => { if (active) setChemicalError(error.message); })
+      .finally(() => { if (active) setChemicalLoading(false); });
+    return () => { active = false; };
+  }, [accessToken]);
+
   useEffect(() => {
     if (!toast) return undefined;
     const timeout = setTimeout(() => setToast(''), 2800);
@@ -126,25 +142,54 @@ function App() {
   }), [chemicals, search, chemicalFilter]);
 
   function changeView(id) { setView(id); setSearch(''); setMobileNav(false); }
-  function saveChemical(form) {
+  async function saveChemical(form) {
     const name = form.get('name')?.trim();
     const formula = form.get('formula')?.trim();
     if (!name || !formula) return;
-    const state = form.get('state');
-    const asset = form.get('asset')?.trim() || `prefab_${state.toLowerCase()}_${formula.toLowerCase().replaceAll(/[^a-z0-9]/g, '')}`;
-    setChemicals((current) => [{
-      id: Date.now(), name, formula, state, category: form.get('category'), color: form.get('color') || '#d8e8e3',
-      density: form.get('density') || '—', unit: form.get('unit') || '', danger: Number(form.get('danger') || 0), asset,
-      description: form.get('description')?.trim() || 'Chưa có mô tả.',
-    }, ...current]);
-    setModal(null);
-    setToast('Đã thêm hóa chất vào dữ liệu trình diễn.');
+    if (!accessToken) {
+      setToast('Hãy kết nối API bằng access token trước khi lưu.');
+      return;
+    }
+    try {
+      const payload = toApiChemical(form);
+      if (editingChemical) await updateChemical(accessToken, editingChemical.id, payload);
+      else await createChemical(accessToken, payload);
+      const items = await getChemicals(accessToken);
+      setChemicals(items);
+      setModal(null);
+      setEditingChemical(null);
+      setChemicalError('');
+      setToast(editingChemical ? 'Đã cập nhật hóa chất.' : 'Đã thêm hóa chất vào thư viện.');
+    } catch (error) {
+      setChemicalError(error.message);
+    }
   }
 
-  function archiveChemical(id) {
-    setChemicals((current) => current.filter((item) => item.id !== id));
-    setSelectedChemical(null);
-    setToast('Đã ẩn hóa chất khỏi thư viện trình diễn.');
+  async function connectChemicalApi(rawToken) {
+    const token = rawToken.trim().replace(/^Bearer\s+/i, '');
+    if (!token) return;
+    setChemicalLoading(true);
+    setChemicalError('');
+    try {
+      const items = await getChemicals(token);
+      storeAccessToken(token);
+      setAccessToken(token);
+      setChemicals(items);
+      setModal(null);
+      setToast('Đã kết nối API hóa chất.');
+    } catch (error) {
+      setChemicalError(error.message);
+    } finally {
+      setChemicalLoading(false);
+    }
+  }
+
+  function disconnectChemicalApi() {
+    storeAccessToken('');
+    setAccessToken('');
+    setChemicalError('');
+    setChemicals(readSavedChemicals());
+    setToast('Đã xóa access token khỏi phiên trình duyệt.');
   }
 
   const pageHeading = titleByView[view] || titleByView.overview;
@@ -198,7 +243,7 @@ function App() {
           </div>
           <div className="topbar-actions">
             <label className="global-search"><Icon name="search" size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm kiếm trong không gian..." aria-label="Tìm kiếm"/><kbd>⌘ K</kbd></label>
-            <div className="demo-pill"><span/> DỮ LIỆU DEMO</div>
+            <div className="demo-pill"><span/> {accessToken ? 'API ĐÃ KẾT NỐI' : 'DỮ LIỆU DEMO'}</div>
             <div className="notification-wrap">
               <button className={`icon-button notification-button ${notificationOpen ? 'is-open' : ''}`} aria-label="Thông báo" onClick={() => setNotificationOpen((v) => !v)}><Icon name="bell" size={19}/><i/></button>
               {notificationOpen && <div className="notification-popover"><strong>Thông báo mới</strong><p><span className="notification-dot"/>8 bài nộp đang chờ chấm.</p><p><span className="notification-dot dot-blue"/>Có 2 lớp học đang hoạt động.</p><button onClick={() => { setView('submissions'); setNotificationOpen(false); }}>Xem bài nộp <Icon name="arrow" size={14}/></button></div>}
@@ -210,7 +255,7 @@ function App() {
 
         <div className="page-content">
           {view === 'overview' && <Overview chemicals={chemicals} go={changeView} setToast={setToast} />}
-          {view === 'chemicals' && <ChemicalLibrary chemicals={filteredChemicals} activeFilter={chemicalFilter} setFilter={setChemicalFilter} onAdd={() => setModal({ type: 'chemical' })} onSelect={setSelectedChemical} />}
+          {view === 'chemicals' && <ChemicalLibrary chemicals={filteredChemicals} activeFilter={chemicalFilter} setFilter={setChemicalFilter} onAdd={() => { setEditingChemical(null); setChemicalError(''); setModal(accessToken ? { type: 'chemical' } : { type: 'token' }); }} onSelect={setSelectedChemical} connected={Boolean(accessToken)} loading={chemicalLoading} error={chemicalError} onConnect={() => setModal({ type: 'token' })} onDisconnect={disconnectChemicalApi} />}
           {view === 'reactions' && <ReactionLibrary setToast={setToast} />}
           {view === 'assignments' && <Assignments tab={assignmentTab} setTab={setAssignmentTab} setToast={setToast} />}
           {view === 'submissions' && <Submissions setToast={setToast} />}
@@ -220,8 +265,9 @@ function App() {
         </div>
       </main>
 
-      {modal?.type === 'chemical' && <ChemicalModal onClose={() => setModal(null)} onSave={saveChemical} />}
-      {selectedChemical && <ChemicalDetailModal chemical={selectedChemical} onClose={() => setSelectedChemical(null)} onArchive={() => archiveChemical(selectedChemical.id)} />}
+      {modal?.type === 'token' && <TokenModal onClose={() => setModal(null)} onConnect={connectChemicalApi} loading={chemicalLoading} error={chemicalError} />}
+      {modal?.type === 'chemical' && <ChemicalModal chemical={editingChemical} onClose={() => { setModal(null); setEditingChemical(null); }} onSave={saveChemical} error={chemicalError} />}
+      {selectedChemical && <ChemicalDetailModal chemical={selectedChemical} onClose={() => setSelectedChemical(null)} onEdit={() => { setEditingChemical(selectedChemical); setSelectedChemical(null); setChemicalError(''); setModal({ type: 'chemical' }); }} />}
       {toast && <div className="toast"><span className="toast-check"><Icon name="check" size={15}/></span>{toast}</div>}
     </div>
   );
@@ -275,16 +321,19 @@ function ActivityItem({ initials, color, title, detail, time, icon }) {
   return <div className="activity-item"><div className={`activity-avatar ${color}`}>{initials}</div><div className="activity-copy"><div><b>{title}</b> {detail}</div><small><Icon name="clock" size={12}/>{time}</small></div><span className="activity-type"><Icon name={icon} size={15}/></span></div>;
 }
 
-function ChemicalLibrary({ chemicals, activeFilter, setFilter, onAdd, onSelect }) {
-  const filters = ['Tất cả', 'Axit', 'Muối', 'Dung môi', 'Khí', 'Rắn', 'Lỏng'];
+function ChemicalLibrary({ chemicals, activeFilter, setFilter, onAdd, onSelect, connected, loading, error, onConnect, onDisconnect }) {
+  const filters = ['Tất cả', 'Lỏng', 'Rắn', 'Khí'];
   return <>
-    <PageTitle eyebrow="THƯ VIỆN NỘI DUNG" title="Hóa chất" description="Quản lý hồ sơ hóa chất và tài nguyên hiển thị trong phòng lab ảo." secondary={<Button variant="outline" icon="download">Xuất danh sách</Button>} action={<Button icon="plus" onClick={onAdd}>Thêm hóa chất</Button>} />
-    <div className="library-summary"><div><span className="summary-mark"><Icon name="flask"/></span><span><strong>{248 + chemicals.length - baseChemicals.length}</strong><small>hóa chất trong thư viện</small></span></div><div className="summary-divider"/><div className="summary-meta"><span className="summary-dot mint-dot"/> 3 trạng thái vật chất <span className="summary-separator">·</span><span className="summary-dot blue-dot"/> 6 nhóm phân loại</div><div className="library-summary-right"><span className="updated-label"><Icon name="clock" size={14}/> Cập nhật 12 phút trước</span></div></div>
-    <div className="filter-toolbar"><div className="filter-tabs">{filters.map((filter) => <button key={filter} className={activeFilter === filter ? 'filter-active' : ''} onClick={() => setFilter(filter)}>{filter}{filter === 'Tất cả' && <small>248</small>}</button>)}</div><button className="filter-button"><Icon name="filter" size={16}/> Bộ lọc <span className="filter-count">2</span></button></div>
+    <PageTitle eyebrow="THƯ VIỆN NỘI DUNG" title="Hóa chất" description="Quản lý hồ sơ hóa chất và tài nguyên hiển thị trong phòng lab ảo." secondary={connected ? <Button variant="outline" icon="logout" onClick={onDisconnect}>Ngắt kết nối</Button> : <Button variant="outline" icon="shield" onClick={onConnect}>Kết nối API</Button>} action={<Button icon="plus" onClick={onAdd}>Thêm hóa chất</Button>} />
+    {!connected && <div className="chemical-notice"><Icon name="shield" size={16}/><span>Đang hiển thị dữ liệu demo. Kết nối API bằng access token để xem và chỉnh sửa dữ liệu thật.</span><button onClick={onConnect}>Kết nối ngay</button></div>}
+    {error && <div className="chemical-error" role="alert"><strong>Lỗi API:</strong> {error}</div>}
+    <div className="library-summary"><div><span className="summary-mark"><Icon name="flask"/></span><span><strong>{chemicals.length}</strong><small>hóa chất {connected ? 'từ máy chủ' : 'demo'}</small></span></div><div className="summary-divider"/><div className="summary-meta"><span className="summary-dot mint-dot"/> Lỏng <span className="summary-separator">·</span><span className="summary-dot blue-dot"/> Rắn <span className="summary-separator">·</span> Khí</div><div className="library-summary-right"><span className="updated-label">{loading ? 'Đang tải dữ liệu…' : connected ? 'Đã đồng bộ với API' : 'Chế độ dữ liệu demo'}</span></div></div>
+    <div className="filter-toolbar"><div className="filter-tabs">{filters.map((filter) => <button key={filter} className={activeFilter === filter ? 'filter-active' : ''} onClick={() => setFilter(filter)}>{filter}</button>)}</div></div>
     <div className="chemical-grid">{chemicals.map((chemical) => <ChemicalCard key={chemical.id} chemical={chemical} onClick={() => onSelect(chemical)}/>)}
-      {chemicals.length === 0 && <div className="empty-state"><span className="empty-icon"><Icon name="search" size={22}/></span><h3>Không tìm thấy hóa chất</h3><p>Thử thay đổi từ khóa hoặc nhóm lọc.</p></div>}
+      {loading && <div className="empty-state"><h3>Đang tải thư viện hóa chất…</h3></div>}
+      {!loading && chemicals.length === 0 && <div className="empty-state"><span className="empty-icon"><Icon name="search" size={22}/></span><h3>Không tìm thấy hóa chất</h3><p>Thử đổi bộ lọc hoặc thêm hồ sơ mới.</p></div>}
     </div>
-    <div className="catalog-footer"><span>Đang hiển thị <b>{chemicals.length}</b> trong <b>248</b> hóa chất</span><div className="pagination"><button disabled>Trước</button><button className="page-current">1</button><button>2</button><button>3</button><span>…</span><button>18</button><button>Tiếp <Icon name="arrow" size={13}/></button></div></div>
+    <div className="catalog-footer"><span>Đang hiển thị <b>{chemicals.length}</b> hóa chất</span></div>
   </>;
 }
 
@@ -300,32 +349,43 @@ function ChemicalCard({ chemical, onClick }) {
   </button>;
 }
 
-function ChemicalModal({ onClose, onSave }) {
-  return <Modal title="Thêm hóa chất mới" subtitle="Tạo hồ sơ để sử dụng trong thư viện mô phỏng." onClose={onClose}>
+function ChemicalModal({ chemical, onClose, onSave, error }) {
+  const stateDefault = { Lỏng: 'LIQUID', Rắn: 'SOLID', Khí: 'GAS' }[chemical?.state] || 'LIQUID';
+  return <Modal title={chemical ? 'Chỉnh sửa hóa chất' : 'Thêm hóa chất mới'} subtitle="Thông tin được lưu vào backend ChemistryLabVR." onClose={onClose}>
     <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onSave(new FormData(event.currentTarget)); }}>
-      <label className="form-field"><span>Tên hóa chất <b>*</b></span><input name="name" placeholder="Ví dụ: Natri clorua" required autoFocus/></label>
-      <label className="form-field"><span>Công thức hóa học <b>*</b></span><input name="formula" placeholder="Ví dụ: NaCl" required/></label>
-      <label className="form-field"><span>Trạng thái</span><select name="state"><option>Lỏng</option><option>Rắn</option><option>Khí</option></select></label>
-      <label className="form-field"><span>Nhóm phân loại</span><select name="category"><option>Dung môi</option><option>Axit</option><option>Muối</option><option>Kim loại</option><option>Khí</option><option>Khác</option></select></label>
-      <label className="form-field"><span>Khối lượng riêng</span><input name="density" type="number" step="0.001" placeholder="1.000"/></label>
-      <label className="form-field"><span>Đơn vị</span><input name="unit" placeholder="g/mL"/></label>
-      <label className="form-field"><span>Mức cảnh báo nội bộ</span><select name="danger"><option value="0">0 — Thông thường</option><option value="1">1 — Thấp</option><option value="2">2 — Trung bình</option><option value="3">3 — Cao</option></select></label>
-      <label className="form-field"><span>Màu mô phỏng</span><div className="color-input"><input type="color" name="color" defaultValue="#bce9f0"/><small>Màu hiển thị trong mô phỏng</small></div></label>
-      <label className="form-field form-wide"><span>Mã tài nguyên Unity <small>(nếu đã có)</small></span><input name="asset" placeholder="prefab_liquid_nacl"/></label>
-      <label className="form-field form-wide"><span>Mô tả</span><textarea name="description" rows="3" placeholder="Thông tin ngắn về hóa chất..."/></label>
+      <label className="form-field"><span>Tên hóa chất <b>*</b></span><input name="name" defaultValue={chemical?.name || ''} placeholder="Ví dụ: Natri clorua" required autoFocus/></label>
+      <label className="form-field"><span>Công thức hóa học <b>*</b></span><input name="formula" defaultValue={chemical?.formula || ''} placeholder="Ví dụ: NaCl" required/></label>
+      <label className="form-field"><span>Trạng thái</span><select name="state" defaultValue={stateDefault}><option value="LIQUID">Lỏng</option><option value="SOLID">Rắn</option><option value="GAS">Khí</option></select></label>
+      <label className="form-field"><span>Khối lượng riêng</span><input name="density" type="number" step="0.001" defaultValue={chemical?.density === '—' ? '' : chemical?.density ?? ''} placeholder="1.000"/></label>
+      <label className="form-field"><span>Đơn vị</span><input name="unit" defaultValue={chemical?.unit || ''} placeholder="g/mL"/></label>
+      <label className="form-field"><span>Mức cảnh báo nội bộ</span><select name="danger" defaultValue={chemical?.danger ?? 0}><option value="0">0 — Thông thường</option><option value="1">1 — Thấp</option><option value="2">2 — Trung bình</option><option value="3">3 — Cao</option></select></label>
+      <label className="form-field"><span>Màu mô phỏng</span><div className="color-input"><input type="color" name="color" defaultValue={chemical?.color || '#bce9f0'}/><small>Màu hiển thị trong mô phỏng</small></div></label>
+      <label className="form-field form-wide"><span>Mô tả</span><textarea name="description" defaultValue={chemical?.description === 'Chưa có mô tả.' ? '' : chemical?.description || ''} rows="3" placeholder="Thông tin ngắn về hóa chất..."/></label>
       <div className="form-footnote"><Icon name="shield" size={15}/> Mức cảnh báo là nhãn demo nội bộ, không thay thế phân loại GHS hoặc SDS.</div>
-      <div className="modal-actions"><Button variant="ghost" onClick={onClose}>Hủy</Button><Button type="submit" icon="plus">Lưu hóa chất</Button></div>
+      {error && <div className="chemical-error form-wide" role="alert">{error}</div>}
+      <div className="modal-actions"><Button variant="ghost" onClick={onClose}>Hủy</Button><Button type="submit" icon="plus">{chemical ? 'Lưu thay đổi' : 'Lưu hóa chất'}</Button></div>
     </form>
   </Modal>;
 }
 
-function ChemicalDetailModal({ chemical, onClose, onArchive }) {
+function ChemicalDetailModal({ chemical, onClose, onEdit }) {
   return <Modal title={chemical.name} subtitle={`${chemical.formula} · ${chemical.category}`} onClose={onClose}>
     <div className="detail-visual" style={{ '--chemical-color': chemical.color }}><div className="art-ring ring-a"/><div className="molecule-center">{chemical.formula}</div><span className="state-chip"><i/>{chemical.state}</span></div>
     <p className="detail-description">{chemical.description}</p>
     <div className="detail-grid"><Detail label="Công thức" value={chemical.formula}/><Detail label="Trạng thái" value={chemical.state}/><Detail label="Khối lượng riêng" value={`${chemical.density} ${chemical.unit}`}/><Detail label="Mức cảnh báo demo" value={`Cấp ${chemical.danger}`}/><Detail label="Tài nguyên Unity" value={chemical.asset} wide/></div>
     <div className="detail-warning"><Icon name="shield" size={16}/> Thông tin an toàn và tính chất cần được đối chiếu với nguồn tham khảo phù hợp trước khi sử dụng trong nội dung học tập.</div>
-    <div className="modal-actions detail-actions"><Button variant="ghost" onClick={onClose}>Đóng</Button><Button variant="danger" onClick={onArchive}>Ẩn khỏi thư viện demo</Button><Button icon="settings" onClick={onClose}>Chỉnh sửa</Button></div>
+    <div className="modal-actions detail-actions"><Button variant="ghost" onClick={onClose}>Đóng</Button><Button icon="settings" onClick={onEdit}>Chỉnh sửa</Button></div>
+  </Modal>;
+}
+
+function TokenModal({ onClose, onConnect, loading, error }) {
+  return <Modal title="Kết nối API hóa chất" subtitle="Dán access token vừa nhận từ API đăng nhập." onClose={onClose}>
+    <form className="form-grid" onSubmit={(event) => { event.preventDefault(); onConnect(new FormData(event.currentTarget).get('token') || ''); }}>
+      <label className="form-field form-wide"><span>Access token <b>*</b></span><textarea name="token" rows="4" placeholder="eyJhbGciOiJIUzI1NiJ9…" required autoFocus/></label>
+      <div className="form-footnote form-wide"><Icon name="shield" size={15}/> Token chỉ được giữ trong sessionStorage của tab hiện tại và sẽ bị xóa khi ngắt kết nối hoặc đóng tab. Không chia sẻ token.</div>
+      {error && <div className="chemical-error form-wide" role="alert">{error}</div>}
+      <div className="modal-actions"><Button variant="ghost" onClick={onClose}>Hủy</Button><Button type="submit" icon="shield">{loading ? 'Đang kết nối…' : 'Kiểm tra và kết nối'}</Button></div>
+    </form>
   </Modal>;
 }
 
@@ -418,3 +478,4 @@ function Settings({ setToast }) {
 function SettingToggle({ title, detail, checked, onClick }) { return <div className="setting-toggle-row"><span><b>{title}</b><small>{detail}</small></span><button className={`toggle-switch ${checked ? 'toggle-on' : ''}`} onClick={onClick} role="switch" aria-checked={checked}><i/></button></div>; }
 
 export default App;
+
