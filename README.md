@@ -18,8 +18,8 @@ Open `http://localhost:5173`.
 - List, create and update use `/api/v1/chemical/all`, `/create` and `/update/{id}`.
 - Chemical states map between the UI labels and backend enum values `LIQUID`, `SOLID`, `GAS`.
 - The backend does not currently expose a delete/archive endpoint, so the UI does not pretend to delete records.
-- For local development, set `VITE_BACKEND_URL` in `.env.local` if the backend is not at `http://localhost:10104`.
-- For a separately deployed frontend, set `VITE_API_BASE_URL` to the backend's HTTPS base URL at build time.
+- Local Vite development proxies `/api` to the Azure backend configured by `VITE_BACKEND_URL` in `.env.local`.
+- Production builds use `VITE_API_BASE_URL` from `.env.production`; rebuild after changing the backend URL.
 
 ## Current scope
 
