@@ -1,31 +1,24 @@
-# ChemistryLabVR Web
+﻿# ChemistryLabVR Web
 
-React + Vite frontend prototype for the ChemistryLabVR learning and content management portal.
+Frontend React + Vite cho các API hiện có trong ChemistryLabVR BE.
 
-## Run locally
+## Chạy local
 
-```bash
-npm.cmd install
-npm.cmd run dev
-```
+1. Chạy npm.cmd install
+2. Chạy npm.cmd run dev
+3. Mở http://localhost:5173
 
-Open `http://localhost:5173`.
+Cấu hình VITE_API_BASE_URL trong .env.local nếu muốn gọi trực tiếp một BE cụ thể. Nếu để trống, Vite proxy /api theo VITE_BACKEND_URL trong vite.config.js.
 
-## Chemical library
+## Chức năng đã nối API
 
-- Connect with a bearer access token from `POST /api/v1/auth/login` to load real chemicals.
-- The token is kept in the current browser tab's `sessionStorage`; disconnecting removes it.
-- List, create and update use `/api/v1/chemical/all`, `/create` and `/update/{id}`.
-- Chemical states map between the UI labels and backend enum values `LIQUID`, `SOLID`, `GAS`.
-- The backend does not currently expose a delete/archive endpoint, so the UI does not pretend to delete records.
-- Local Vite development proxies `/api` to the Azure backend configured by `VITE_BACKEND_URL` in `.env.local`.
-- Production builds use `VITE_API_BASE_URL` from `.env.production`; rebuild after changing the backend URL.
+- Đăng nhập, đăng ký học viên, đăng xuất; access token được giữ trong sessionStorage.
+- Chemical: xem danh sách/chi tiết, tạo, cập nhật và xóa mềm; thao tác ghi chỉ hiện với ADMIN/LECTURER.
+- Reaction: xem danh sách và chi tiết.
 
-## Current scope
+## Giới hạn theo BE hiện tại
 
-- Vietnamese management dashboard with responsive navigation.
-- Overview, chemical library, reaction library, assignments, submissions, users, reports and settings screens.
-- When no access token is connected, the chemical library displays sample data as demo-only.
-- Other records are sample data for UI review. Unity runtime connection is not wired yet.
-
-Do not use the sample chemical safety indicators as GHS classifications or as a replacement for an SDS.
+- Reaction POST đã có route nhưng service chưa lưu dữ liệu, nên giao diện chưa bật tạo Reaction.
+- Category, Assignment, Submission, báo cáo và quản trị người dùng chưa có API tương ứng; giao diện không dùng dữ liệu mẫu cho các mục này.
+- Unity runtime chưa được kết nối.
+- Mức cảnh báo hóa chất là dữ liệu nội bộ, không thay thế phân loại GHS hoặc SDS.

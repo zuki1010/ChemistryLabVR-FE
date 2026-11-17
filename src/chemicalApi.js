@@ -1,86 +1,25 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
-
-export function readAccessToken() {
-  return sessionStorage.getItem('clvr-access-token') || '';
+const API = import.meta.env.VITE_API_BASE_URL || '';
+const SESSION = 'clvr-session';
+export function getSession(){try{return JSON.parse(sessionStorage.getItem(SESSION)||'null')}catch{return null}}
+export function setSession(value){value?.accessToken?sessionStorage.setItem(SESSION,JSON.stringify(value)):sessionStorage.removeItem(SESSION)}
+async function request(path,{token,method='GET',body}={}){
+ const headers={Accept:'application/json'}; if(token)headers.Authorization='Bearer '+token;
+ if(body!==undefined)headers['Content-Type']='application/json';
+ let response; try{response=await fetch(API+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body)})}
+ catch{throw new Error('Không kết nối được backend. Kiểm tra server hoặc API URL.')}
+ if(!response.ok){let message='Yêu cầu thất bại (HTTP '+response.status+')';try{const d=await response.json();message=d.message||d.error||message}catch{}const e=new Error(message);e.status=response.status;throw e}
+ if(response.status===204)return null;
+ return (response.headers.get('content-type')||'').includes('json')?response.json():response.text()
 }
+const stateLabel={LIQUID:'Lỏng',SOLID:'Rắn',GAS:'Khí'};
+export function normalizeChemical(c){return {id:c.id,name:c.name,formula:c.formula,state:c.state,stateLabel:stateLabel[c.state]||c.state,color:c.colorHex||c.color_hex||'#bce9f0',danger:c.dangerLevel??c.danger_level??1,density:c.density??'',unit:c.unit||'',description:c.description||''}}
+export const signIn=(email,password)=>request('/api/v1/auth/login',{method:'POST',body:{email,password}});
+export const signUp=(fullName,email,password)=>request('/api/v1/auth/register',{method:'POST',body:{fullName,email,password}});
+export const signOut=token=>request('/api/v1/auth/logout',{token,method:'POST'});
+export async function listChemicals(token){return (await request('/api/v1/chemical/all',{token})||[]).map(normalizeChemical)}
+export async function oneChemical(token,id){return normalizeChemical(await request('/api/v1/chemical/'+id,{token}))}
+export const createChemical=(token,body)=>request('/api/v1/chemical/create',{token,method:'POST',body});
+export const updateChemical=(token,id,body)=>request('/api/v1/chemical/update/'+id,{token,method:'PUT',body});
+export const removeChemical=(token,id)=>request('/api/v1/chemical/delete/'+id,{token,method:'DELETE'});
+export const listReactions=token=>request('/api/v1/reaction/all',{token});
 
-export function storeAccessToken(token) {
-  const value = token.trim();
-  if (value) sessionStorage.setItem('clvr-access-token', value);
-  else sessionStorage.removeItem('clvr-access-token');
-}
-
-async function request(path, { token, method = 'GET', body } = {}) {
-  const headers = { Accept: 'application/json' };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    let message = `Yêu cầu thất bại (${response.status})`;
-    try {
-      const payload = await response.json();
-      message = payload.message || payload.error || message;
-    } catch {
-      // Keep the HTTP status message when the backend returns an empty body.
-    }
-    const error = new Error(message);
-    error.status = response.status;
-    throw error;
-  }
-
-  if (response.status === 204) return null;
-  const contentType = response.headers.get('content-type') || '';
-  return contentType.includes('application/json') ? response.json() : response.text();
-}
-
-const stateToApi = { Lỏng: 'LIQUID', Rắn: 'SOLID', Khí: 'GAS', LIQUID: 'LIQUID', SOLID: 'SOLID', GAS: 'GAS' };
-const stateToUi = { LIQUID: 'Lỏng', SOLID: 'Rắn', GAS: 'Khí', Lỏng: 'Lỏng', Rắn: 'Rắn', Khí: 'Khí' };
-
-export function fromApiChemical(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    formula: row.formula,
-    state: stateToUi[row.state] || row.state || '—',
-    category: 'Hóa chất',
-    color: row.colorHex || row.color_hex || '#d8e8e3',
-    density: row.density ?? '—',
-    unit: row.unit || '',
-    danger: Number(row.dangerLevel ?? row.danger_level ?? 0),
-    asset: row.unityAssetId || row.unity_asset_id || 'Chưa gán asset Unity',
-    description: row.description || 'Chưa có mô tả.',
-  };
-}
-
-export function toApiChemical(formData) {
-  const densityValue = formData.get('density')?.trim();
-  return {
-    name: formData.get('name')?.trim(),
-    formula: formData.get('formula')?.trim(),
-    state: stateToApi[formData.get('state')] || 'LIQUID',
-    color_hex: formData.get('color') || '#bce9f0',
-    description: formData.get('description')?.trim() || '',
-    density: densityValue ? Number(densityValue) : null,
-    danger_level: Number(formData.get('danger') || 0),
-    unit: formData.get('unit')?.trim() || '',
-  };
-}
-
-export async function getChemicals(token) {
-  const rows = await request('/api/v1/chemical/all', { token });
-  return rows.map(fromApiChemical);
-}
-
-export function createChemical(token, payload) {
-  return request('/api/v1/chemical/create', { token, method: 'POST', body: payload });
-}
-
-export function updateChemical(token, id, payload) {
-  return request(`/api/v1/chemical/update/${id}`, { token, method: 'PUT', body: payload });
-}
