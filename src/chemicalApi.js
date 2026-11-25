@@ -22,4 +22,8 @@ export const createChemical=(token,body)=>request('/api/v1/chemical/create',{tok
 export const updateChemical=(token,id,body)=>request('/api/v1/chemical/update/'+id,{token,method:'PUT',body});
 export const removeChemical=(token,id)=>request('/api/v1/chemical/delete/'+id,{token,method:'DELETE'});
 export const listReactions=token=>request('/api/v1/reaction/all',{token});
+export const oneReaction=(token,id)=>request('/api/v1/reaction/'+id,{token});
+export const createReaction=(token,body)=>request('/api/v1/reaction/create',{token,method:'POST',body});
+export const updateReaction=(token,id,body)=>request('/api/v1/reaction/update/'+id,{token,method:'PUT',body});
+export const removeReaction=(token,id)=>request('/api/v1/reaction/delete/'+id,{token,method:'DELETE'});
 
